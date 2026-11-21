@@ -172,6 +172,25 @@
 }
 
 @layer utilities {
+  .bg-bg { background-color:#F4F6FB; }
+  .text-ink { color:#1B2437; }
+  .text-muted { color:#6B7690; }
+  .bg-brand { background-color:#1F6BFF; }
+  .text-brand { color:#1F6BFF; }
+  .bg-brand-tint { background-color:#EAF1FF; }
+  .text-money { color:#12A150; }
+  .bg-money-tint { background-color:#E7F6EE; }
+  .text-danger { color:#E5484D; }
+  .bg-danger-tint { background-color:#FDECEC; }
+  .bg-warn-tint { background-color:#FFF4DB; }
+  .text-warn { color:#B7791F; }
+  .border-brand { border-color:#1F6BFF; }
+  .btn-primary { display:inline-flex; min-height:44px; align-items:center; justify-content:center; gap:.55rem; border-radius:12px; background:#1F6BFF; padding:.7rem 1.15rem; color:#fff; font-weight:700; transition:background .18s ease,transform .18s ease; }
+  .btn-primary:hover { background:#1858D6; transform:translateY(-1px); }
+  .card-surface { border:1px solid #E8ECF4; border-radius:20px; background:#fff; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  @keyframes marquee { to { transform:translateX(-50%); } }
+  .animate-marquee { animation:marquee 44s linear infinite; }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } }
   .animate-fade-in { animation: fade-in 0.3s ease-in-out; }
   @keyframes fade-in {
     from { opacity: 0; transform: translateY(10px); }
