@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { NextConfig } from 'next'
 
 /**
@@ -12,6 +13,9 @@ const nextConfig: NextConfig = {
   // Don't fail the sandbox build on type errors mid-edit. (Next 16 removed the
   // `eslint` config key — lint is run separately, so don't set it here.)
   typescript: { ignoreBuildErrors: true },
+  // Pin the workspace root. Without this, Turbopack walks up past the repo
+  // (e.g. OneDrive/Desktop/app) and warns about lockfiles it finds there.
+  turbopack: { root: path.resolve('.') },
   // Allow the E2B/Blink preview domains to talk to the dev server (Next 16).
   allowedDevOrigins: [
     '*.e2b.dev',

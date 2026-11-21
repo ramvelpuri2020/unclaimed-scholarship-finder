@@ -1,9 +1,131 @@
 'use client';
+
 import Link from 'next/link';
-import { useMemo } from 'react';
-import { ArrowRight, Clock3, Heart, Target } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Clock3 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { formatMoney, deadlineText, daysUntil, relativeTime } from '@/lib/format';
 import type { Program } from '@/lib/types';
-function Match({p}:{p:Program}){const saved=useStore(s=>s.savedIds.includes(p.id));const toggle=useStore(s=>s.toggleSaved);return <article className="card-surface p-5 transition hover:-translate-y-px hover:shadow-md"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-brand-tint px-3 py-1 text-xs font-semibold text-brand">{p.sourceSite}</span><span className={`rounded-full px-3 py-1 text-xs font-semibold ${p.confidence>=.85?'bg-money-tint text-money':p.confidence>=.65?'bg-brand-tint text-brand':'bg-warn-tint text-warn'}`}>{p.confidence>=.85?'Strong match':p.confidence>=.65?'Likely':'Maybe'} · {Math.round(p.confidence*100)}%</span>{p.fromCache&&<span className="rounded-full bg-warn-tint px-2 py-1 text-xs text-warn">Cached</span>}</div><div className="mt-3 flex justify-between gap-3"><div><h3 className="text-lg font-bold">{p.name}</h3><p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{p.description}</p></div><strong className={`shrink-0 text-xl ${p.amountMax===null?'text-ink':'text-money'}`}>{p.amountLabel}</strong></div><div className="mt-4 flex flex-wrap items-center gap-2"><span className="rounded-full bg-money-tint px-3 py-1 text-xs text-money">{p.requirements[0]}</span><span className="text-xs text-muted">{deadlineText(p)}</span><div className="ml-auto flex gap-2"><Link className="btn-primary h-10" href={`/source/${p.id}`}>How to claim <ArrowRight size={15}/></Link><button aria-label={saved?'Remove saved match':'Save match'} onClick={()=>toggle(p.id)} className={`grid size-10 place-items-center rounded-xl border ${saved?'border-danger bg-danger-tint text-danger':'border-border text-muted'}`}><Heart size={17} fill={saved?'currentColor':'none'}/></button></div></div><div className="mt-4 rounded-xl bg-brand-tint px-4 py-3 text-sm leading-6"><b>Next step:</b> {p.nextStep}</div></article>}
-export default function Home(){const programs=useStore(s=>s.programs);const saved=useStore(s=>s.savedIds.length);const running=useStore(s=>s.status==='running');const feed=useStore(s=>s.feed);const user=useStore(s=>s.profile);const total=useStore(s=>s.total);const sorted=useMemo(()=>[...programs].sort((a,b)=>b.confidence-a.confidence),[programs]);const soon=useMemo(()=>programs.filter(p=>p.deadline&&daysUntil(p.deadline)!==null).sort((a,b)=>(daysUntil(a.deadline)||0)-(daysUntil(b.deadline)||0)).slice(0,4),[programs]);const greeting=new Date().getHours()<12?'morning':new Date().getHours()<17?'afternoon':'evening';return <div className="mx-auto max-w-[1200px] px-4 py-7 md:px-8"><h1 className="text-2xl font-extrabold">Good {greeting}, {user?.fullName.split(' ')[0]}</h1><div className="mt-6 grid gap-7 lg:grid-cols-[minmax(0,760px)_340px]"><div className="space-y-7"><section className="rounded-hero bg-brand p-6 text-white shadow-card md:p-7"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-white/15 px-3 py-1.5 text-sm"><Target className="mr-1 inline" size={15}/>{programs.length} matches</span><span className="rounded-full bg-white/15 px-3 py-1.5 text-sm"><Heart className="mr-1 inline" size={15}/>{saved} saved</span><Link href={running?`/hunt/demo`:'/matches'} className="ml-auto rounded-full bg-white px-4 py-2 text-sm font-bold text-brand">{running?'Watch live':'Review matches'}</Link></div><p className="mt-8 text-5xl font-extrabold">{formatMoney(total)}</p><p className="mt-1 text-sm text-white/80">in programs you may qualify for</p><div className="mt-6 border-t border-white/20 pt-4"><p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/70">{running?'Searching…':'Latest finds'}</p>{(feed.length?feed.slice(0,3):programs.slice(-3).reverse().map(p=>({id:p.id,text:p.name,at:p.foundAt}))).map(item=><div key={item.id} className="flex justify-between gap-3 py-1 text-sm"><span className="truncate font-semibold">{item.text}</span><span className="shrink-0 text-white/70">{relativeTime(item.at)}</span></div>)}</div></section><section><div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-extrabold">Your matches</h2><Link href="/matches" className="text-sm font-semibold text-brand">View all matches</Link></div>{programs.length===0?<div className="card-surface p-8 text-center"><h3 className="font-bold">No matches yet</h3><p className="mt-2 text-sm text-muted">Run a hunt and your matches will appear here.</p><Link href="/start" className="btn-primary mt-5">Start a hunt</Link></div>:<div className="space-y-4">{sorted.slice(0,4).map(p=><Match key={p.id} p={p}/>)}</div>}<p className="mt-4 text-center text-[13px] text-muted">Details can change. Always confirm on the official page.</p></section></div><aside className="space-y-5"><section className="card-surface p-5"><h2 className="flex items-center gap-2 font-bold"><Clock3 size={17} className="text-brand"/>Closing soon</h2>{soon.length?soon.map(p=><div key={p.id} className="mt-4 border-t border-border pt-3"><p className="truncate text-sm font-semibold">{p.name}</p><p className="mt-1 text-xs text-danger">{p.amountLabel} · {deadlineText(p)}</p></div>):<p className="mt-4 text-sm text-muted">No upcoming deadlines yet.</p>}</section><section className="card-surface p-5"><h2 className="font-bold">Recently found</h2>{programs.length?[...programs].sort((a,b)=>b.foundAt.localeCompare(a.foundAt)).slice(0,4).map(p=><div key={p.id} className="mt-4 border-t border-border pt-3"><p className="truncate text-sm font-semibold">{p.name}</p><p className="mt-1 text-xs text-muted">{p.amountLabel} · checked {relativeTime(p.checkedAt)}</p></div>):<p className="mt-4 text-sm text-muted">New finds will show up here.</p>}</section></aside></div></div>}
+import { MissionControl } from '@/components/home/MissionControl';
+import { DeadlineTimeline } from '@/components/home/DeadlineTimeline';
+import { MatchCard } from '@/components/match/MatchCard';
+import { ApplyDrawer } from '@/components/match/ApplyDrawer';
+
+export default function Home() {
+  const programs = useStore((s) => s.programs);
+  const profile = useStore((s) => s.profile);
+  const [applyProgram, setApplyProgram] = useState<Program | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  const sorted = useMemo(
+    () => [...programs].sort((a, b) => b.confidence - a.confidence).slice(0, 3),
+    [programs],
+  );
+  const soon = useMemo(
+    () =>
+      programs
+        .filter((program) => program.deadline && daysUntil(program.deadline) !== null)
+        .sort((a, b) => (daysUntil(a.deadline) ?? 0) - (daysUntil(b.deadline) ?? 0))
+        .slice(0, 4),
+    [programs],
+  );
+  const recent = useMemo(
+    () => [...programs].sort((a, b) => b.foundAt.localeCompare(a.foundAt)).slice(0, 4),
+    [programs],
+  );
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+
+  function openApply(program: Program, trigger: HTMLElement) {
+    triggerRef.current = trigger;
+    setApplyProgram(program);
+  }
+
+  function closeApply() {
+    setApplyProgram(null);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-extrabold">
+        Good {greeting}
+        {profile?.fullName ? `, ${profile.fullName.split(' ')[0]}` : ''}
+      </h1>
+
+      <MissionControl />
+
+      {programs.length === 0 ? (
+        <section className="card-surface p-8 text-center">
+          <h2 className="text-lg font-bold">No matches yet</h2>
+          <p className="mt-2 text-sm text-muted">Run a hunt and your matches will appear here.</p>
+          <Link href="/start" className="btn-primary mt-5">
+            Start a hunt
+          </Link>
+        </section>
+      ) : (
+        <>
+          <DeadlineTimeline programs={programs} />
+
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-extrabold">Top matches</h2>
+              <Link href="/matches" className="text-sm font-semibold text-brand">
+                View all
+              </Link>
+            </div>
+            <div className="space-y-4">
+              {sorted.map((program) => (
+                <MatchCard key={program.id} program={program} onApply={openApply} />
+              ))}
+            </div>
+          </section>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <section className="card-surface p-5">
+              <h2 className="font-bold">Recently found</h2>
+              {recent.length ? (
+                recent.map((program) => (
+                  <div key={program.id} className="mt-4 border-t border-border pt-3">
+                    <p className="truncate text-sm font-semibold">{program.name}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      {program.amountLabel} · checked {relativeTime(program.checkedAt)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="mt-4 text-sm text-muted">New finds will show up here.</p>
+              )}
+            </section>
+
+            <section className="card-surface p-5">
+              <h2 className="flex items-center gap-2 font-bold">
+                <Clock3 size={17} className="text-brand" />
+                Closing soon
+              </h2>
+              {soon.length ? (
+                soon.map((program) => (
+                  <div key={program.id} className="mt-4 border-t border-border pt-3">
+                    <p className="truncate text-sm font-semibold">{program.name}</p>
+                    <p className="mt-1 text-xs text-danger">
+                      {program.amountLabel} · {deadlineText(program)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="mt-4 text-sm text-muted">No upcoming deadlines yet.</p>
+              )}
+            </section>
+          </div>
+
+          <p className="text-center text-[13px] text-muted">
+            Details can change. Always confirm on the official page.
+          </p>
+        </>
+      )}
+
+      <ApplyDrawer program={applyProgram} onClose={closeApply} />
+    </div>
+  );
+}
