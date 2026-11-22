@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python backend
+backend/.venv/
+backend/data/
+backend/**/__pycache__/
+*.pyc
+backend/.env
+backend/.vultr-token
+!backend/.env.example
+
+# private resume
+backend/data/resume.pdf
+Ramcharan_Velpuri_Resume (3).pdf
