@@ -1,15 +1,274 @@
 'use client';
+
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { Profile, Program } from './types';
-export type SiteState = { name: string; status: 'queued'|'visiting'|'reading'|'done'|'cached'|'failed'; count: number; streamingUrl?: string; message: string };
-export type HuntRecord = { id: string; startedAt: string; finishedAt: string; total: number; count: number };
+import type { HuntEvent, Profile, Program } from './types';
+
+export type SiteStatus = 'queued' | 'visiting' | 'reading' | 'done' | 'failed';
+export type SiteState = {
+  id: string;
+  name: string;
+  status: SiteStatus;
+  count: number;
+  message: string;
+  streamingUrl?: string;
+};
+export type HuntStatus = 'idle' | 'running' | 'complete' | 'error';
+export type HuntRecord = {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  total: number;
+  count: number;
+  verified?: number;
+  unconfirmed?: number;
+};
 type FeedLine = { id: string; text: string; at: string };
-type Store = { profile: Profile|null; programs: Program[]; savedIds: string[]; drafts: Record<string,Record<string,string>>; hunts: HuntRecord[]; status: 'idle'|'running'|'complete'; huntId: string|null; startedAt: string|null; sites: Record<string,SiteState>; siteOrder: string[]; feed: FeedLine[]; total: number; activeSiteId: string|null; manualSite: boolean; setProfile:(p:Profile)=>void; setDraft:(pid:string,fid:string,v:string)=>void; clearDraft:(pid:string)=>void; toggleSaved:(id:string)=>void; start:(id:string,order:string[],names:Record<string,string>)=>void; event:(e: import('./types').HuntEvent)=>void; selectSite:(id:string)=>void; reset:()=>void };
-const initial = { profile:null, programs:[], savedIds:[], drafts:{}, hunts:[], status:'idle' as const, huntId:null, startedAt:null, sites:{}, siteOrder:[], feed:[], total:0, activeSiteId:null, manualSite:false };
-export const useStore = create<Store>()(persist((set,get)=>({ ...initial,
- setProfile:(profile)=>set({profile}), setDraft:(pid,fid,v)=>set(s=>({drafts:{...s.drafts,[pid]:{...s.drafts[pid],[fid]:v}}})), clearDraft:(pid)=>set(s=>{const drafts={...s.drafts}; delete drafts[pid]; return {drafts};}), toggleSaved:(id)=>set(s=>({savedIds:s.savedIds.includes(id)?s.savedIds.filter(x=>x!==id):[...s.savedIds,id]})),
- start:(id,order,names)=>set({status:'running',huntId:id,startedAt:new Date().toISOString(),siteOrder:order,sites:Object.fromEntries(order.map(key=>[key,{name:names[key]||key,status:'queued',count:0,message:'Preparing to visit'}])),feed:[],total:0,activeSiteId:null,manualSite:false,programs:[]}),
- event:(event)=>set(s=>{const now=new Date().toISOString(); const addFeed=(text:string)=>[{id:crypto.randomUUID(),text,at:now},...s.feed].slice(0,10); const sites={...s.sites}; let activeSiteId=s.activeSiteId; let feed=s.feed; let programs=s.programs; let status=s.status; let hunts=s.hunts; if(event.type==='site_started'){sites[event.siteId]={...sites[event.siteId],name:event.siteName,status:'visiting',message:`Opening ${event.siteName}`,streamingUrl:event.streamingUrl}; if(!s.manualSite) activeSiteId=event.siteId;} else if(event.type==='site_progress'){sites[event.siteId]={...sites[event.siteId],status:'reading',message:event.message}; feed=addFeed(`${event.message} · ${sites[event.siteId]?.name||''}`);} else if(event.type==='program_found'){if(!programs.some(p=>p.id===event.program.id)) programs=[...programs,{...event.program,foundAt:now,checkedAt:event.program.fromCache?event.program.checkedAt:now}]; feed=addFeed(`Found: ${event.program.name} · ${event.program.amountLabel}`);} else if(event.type==='site_done'){const cached=programs.some(p=>p.sourceSiteId===event.siteId&&p.fromCache); sites[event.siteId]={...sites[event.siteId],status:cached?'cached':'done',count:event.count};} else if(event.type==='site_failed'){sites[event.siteId]={...sites[event.siteId],status:event.usedCache?'cached':'failed',message:event.usedCache?'Using recently checked results':'Could not reach this site'};} else {status='complete'; const total=programs.reduce((n,p)=>n+(p.amountMax||0),0); hunts=[{id:s.huntId||'demo',startedAt:s.startedAt||now,finishedAt:now,total,count:programs.length},...s.hunts]; feed=addFeed(`Hunt complete · ${programs.length} programs found`);} return {sites,activeSiteId,feed,programs,total:programs.reduce((n,p)=>n+(p.amountMax||0),0),status,hunts};}),
- selectSite:(id)=>set({activeSiteId:id,manualSite:true}), reset:()=>set({...initial,hunts:[]})
-}),{name:'unclaimed-v1',storage:createJSONStorage(()=>localStorage),partialize:(s)=>({profile:s.profile,programs:s.programs,savedIds:s.savedIds,drafts:s.drafts,hunts:s.hunts}) as Store}));
+
+type Store = {
+  profile: Profile | null;
+  programs: Program[];
+  savedIds: string[];
+  hunts: HuntRecord[];
+  status: HuntStatus;
+  huntId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  huntError: string | null;
+  sites: Record<string, SiteState>;
+  siteOrder: string[];
+  feed: FeedLine[];
+  total: number;
+  activeSiteId: string | null;
+  manualSite: boolean;
+  setProfile: (profile: Profile) => void;
+  toggleSaved: (id: string) => void;
+  prepare: () => void;
+  cancel: () => void;
+  start: (huntId: string) => void;
+  adopt: (huntId: string) => void;
+  event: (event: HuntEvent) => void;
+  selectSite: (id: string) => void;
+  setPrograms: (programs: Program[]) => void;
+  reset: () => void;
+};
+
+const initial = {
+  profile: null,
+  programs: [],
+  savedIds: [],
+  hunts: [],
+  status: 'idle' as const,
+  huntId: null,
+  startedAt: null,
+  finishedAt: null,
+  huntError: null,
+  sites: {},
+  siteOrder: [],
+  feed: [],
+  total: 0,
+  activeSiteId: null,
+  manualSite: false,
+};
+
+const emptyRun = {
+  status: 'running' as const,
+  huntId: null,
+  startedAt: null,
+  finishedAt: null,
+  huntError: null,
+  sites: {},
+  siteOrder: [],
+  feed: [],
+  total: 0,
+  activeSiteId: null,
+  manualSite: false,
+  programs: [],
+};
+
+function totalOf(programs: Program[]): number {
+  return programs.reduce((sum, program) => sum + (program.amountMax ?? 0), 0);
+}
+
+export const useStore = create<Store>()(
+  persist(
+    (set) => ({
+      ...initial,
+      setProfile: (profile) => set({ profile }),
+      toggleSaved: (id) =>
+        set((state) => ({
+          savedIds: state.savedIds.includes(id)
+            ? state.savedIds.filter((savedId) => savedId !== id)
+            : [...state.savedIds, id],
+        })),
+      prepare: () =>
+        set({
+          ...emptyRun,
+          huntId: null,
+          startedAt: null,
+        }),
+      cancel: () => set({ status: 'idle' }),
+      start: (huntId) =>
+        set((state) => ({
+          ...emptyRun,
+          huntId,
+          startedAt: new Date().toISOString(),
+          hunts: state.hunts,
+        })),
+      adopt: (huntId) =>
+        set((state) => {
+          if (state.huntId === huntId) return state;
+          return {
+            ...emptyRun,
+            huntId,
+            startedAt: new Date().toISOString(),
+          };
+        }),
+      event: (event) =>
+        set((state) => {
+          const now = new Date().toISOString();
+          const addFeed = (text: string) => [
+            { id: crypto.randomUUID(), text, at: now },
+            ...state.feed,
+          ].slice(0, 10);
+
+          const sites = { ...state.sites };
+          let activeSiteId = state.activeSiteId;
+          let feed = state.feed;
+          let programs = state.programs;
+          let status = state.status;
+          let hunts = state.hunts;
+          let siteOrder = state.siteOrder;
+          let finishedAt = state.finishedAt;
+          let huntError = state.huntError;
+
+          if (event.type === 'site_started') {
+            const existing = sites[event.siteId];
+            const isNew = !existing;
+            if (isNew) siteOrder = [...siteOrder, event.siteId];
+            sites[event.siteId] = {
+              id: event.siteId,
+              name: event.siteName,
+              status: existing && existing.status !== 'queued' ? existing.status : 'visiting',
+              count: existing?.count ?? 0,
+              message: existing && existing.status !== 'queued' ? existing.message : `Opening ${event.siteName}`,
+              streamingUrl: event.streamingUrl ?? existing?.streamingUrl,
+            };
+            if (!state.manualSite && (event.streamingUrl || isNew || activeSiteId === null)) {
+              activeSiteId = event.siteId;
+            }
+          } else if (event.type === 'site_progress') {
+            const existing = sites[event.siteId];
+            if (existing) {
+              sites[event.siteId] = {
+                ...existing,
+                status: 'reading',
+                message: event.message,
+                count: event.count ?? existing.count,
+              };
+              feed = addFeed(`${event.message} · ${existing.name}`);
+            } else {
+              feed = addFeed(event.message);
+            }
+          } else if (event.type === 'program_found') {
+            if (!programs.some((program) => program.id === event.program.id)) {
+              programs = [...programs, event.program];
+            }
+            feed = addFeed(`Found: ${event.program.name} · ${event.program.amountLabel}`);
+          } else if (event.type === 'site_done') {
+            const existing = sites[event.siteId];
+            sites[event.siteId] = {
+              id: event.siteId,
+              name: existing?.name ?? event.siteId,
+              status: 'done',
+              count: event.count,
+              message: existing?.message ?? '',
+              streamingUrl: existing?.streamingUrl,
+            };
+          } else if (event.type === 'site_failed') {
+            const existing = sites[event.siteId];
+            sites[event.siteId] = {
+              id: event.siteId,
+              name: existing?.name ?? event.siteId,
+              status: 'failed',
+              count: existing?.count ?? 0,
+              message: 'Could not reach this page',
+              streamingUrl: existing?.streamingUrl,
+            };
+          } else if (event.type === 'hunt_complete') {
+            status = 'complete';
+            finishedAt = now;
+            hunts = [
+              {
+                id: state.huntId ?? 'hunt',
+                startedAt: state.startedAt ?? now,
+                finishedAt: now,
+                total: event.totalAmount,
+                count: event.programCount,
+                verified: event.verifiedCount,
+                unconfirmed: event.unconfirmedCount,
+              },
+              ...hunts,
+            ];
+            feed = addFeed(
+              `Found ${event.programCount} awards: ${event.verifiedCount} with a confirmed deadline, ${event.unconfirmedCount} to check`,
+            );
+          } else {
+            status = 'error';
+            finishedAt = now;
+            huntError = event.message;
+            feed = addFeed(`Hunt stopped · ${event.message}`);
+          }
+
+          return {
+            sites,
+            siteOrder,
+            activeSiteId,
+            feed,
+            programs,
+            total: totalOf(programs),
+            status,
+            hunts,
+            finishedAt,
+            huntError,
+          };
+        }),
+      selectSite: (id) => set({ activeSiteId: id, manualSite: true }),
+      setPrograms: (programs) =>
+        set({
+          programs,
+          total: totalOf(programs),
+          status: 'complete',
+        }),
+      reset: () => set({ ...initial, hunts: [] }),
+    }),
+    {
+      name: 'unclaimed-v2',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        // Never put a whole PDF into localStorage. The in-memory profile keeps
+        // the data URL for the active hunt; a reload asks for the file again.
+        profile: state.profile
+          ? {
+              ...state.profile,
+              resume: state.profile.resume
+                ? { name: state.profile.resume.name, size: state.profile.resume.size }
+                : null,
+            }
+          : null,
+        programs: state.programs,
+        savedIds: state.savedIds,
+        hunts: state.hunts,
+        status: state.status,
+        huntId: state.huntId,
+        startedAt: state.startedAt,
+        finishedAt: state.finishedAt,
+        huntError: state.huntError,
+        sites: state.sites,
+        siteOrder: state.siteOrder,
+        total: state.total,
+        activeSiteId: state.activeSiteId,
+      }) as Store,
+    },
+  ),
+);

@@ -28,7 +28,7 @@ export default function Landing() {
               <Sparkles size={16} /> AI agents that read the real web
             </div>
             <h1 className="max-w-[640px] text-[40px] font-extrabold leading-[1.05] tracking-[-0.02em] [word-spacing:normal] sm:text-[52px] lg:text-[64px]">
-              There's money out there with your name on it.
+              There&apos;s money out there with your name on it.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-muted md:text-xl">
               Canadian students leave thousands unclaimed because finding it means digging through dozens of websites. Our AI employee does the digging for you.

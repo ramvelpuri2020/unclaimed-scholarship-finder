@@ -2,17 +2,11 @@ import path from 'node:path'
 import type { NextConfig } from 'next'
 
 /**
- * Blink Next.js (static export). The published artifact is plain HTML/CSS/JS
- * in `out/` — served by Blink hosting like the Vite template's `dist/`.
- * Keep this app frontend-only + Blink SDK; put backend logic in Blink functions.
+ * Next.js app router. Live hunts use arbitrary `/hunt/[id]` ids, so this must
+ * run as a Node server rather than a static export.
  */
 const nextConfig: NextConfig = {
-  output: 'export',
-  // next/image can't use the optimizer in a static export.
   images: { unoptimized: true },
-  // Don't fail the sandbox build on type errors mid-edit. (Next 16 removed the
-  // `eslint` config key — lint is run separately, so don't set it here.)
-  typescript: { ignoreBuildErrors: true },
   // Pin the workspace root. Without this, Turbopack walks up past the repo
   // (e.g. OneDrive/Desktop/app) and warns about lockfiles it finds there.
   turbopack: { root: path.resolve('.') },

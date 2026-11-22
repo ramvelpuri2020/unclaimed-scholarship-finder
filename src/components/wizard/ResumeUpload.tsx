@@ -23,6 +23,7 @@ export function ResumeUpload({
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [dragging, setDragging] = React.useState(false);
+  const [reading, setReading] = React.useState(false);
 
   function accept(file: File | undefined) {
     if (!file) return;
@@ -36,7 +37,18 @@ export function ResumeUpload({
       return;
     }
     setError(null);
-    onChange({ name: file.name, size: file.size });
+    setReading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setReading(false);
+      const dataUrl = typeof reader.result === 'string' ? reader.result : undefined;
+      onChange({ name: file.name, size: file.size, dataUrl });
+    };
+    reader.onerror = () => {
+      setReading(false);
+      setError('That PDF could not be read. Please try another file.');
+    };
+    reader.readAsDataURL(file);
   }
 
   if (resume) {
@@ -49,6 +61,9 @@ export function ResumeUpload({
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">{resume.name}</p>
             <p className="mt-0.5 text-[13px] text-muted">{formatSize(resume.size)} · PDF</p>
+            {!resume.dataUrl ? (
+              <p className="mt-1 text-[12px] font-medium text-warn">Re-upload this PDF so we can read it.</p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -105,7 +120,7 @@ export function ResumeUpload({
           <Upload size={20} />
         </span>
         <span className="text-sm font-semibold text-ink">
-          Drop your resume here, or <span className="text-brand">browse</span>
+          {reading ? 'Reading your PDF…' : <>Drop your resume here, or <span className="text-brand">browse</span></>}
         </span>
         <span className="text-[13px] text-muted">PDF only, up to 10 MB</span>
       </button>

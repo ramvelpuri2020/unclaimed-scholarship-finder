@@ -1,30 +1,44 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Clock3 } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { formatMoney, deadlineText, daysUntil, relativeTime } from '@/lib/format';
-import type { Program } from '@/lib/types';
+import { useHydrated } from '@/lib/useHydrated';
+import { deadlineText, daysUntil } from '@/lib/format';
 import { MissionControl } from '@/components/home/MissionControl';
 import { DeadlineTimeline } from '@/components/home/DeadlineTimeline';
 import { MatchCard } from '@/components/match/MatchCard';
-import { ApplyDrawer } from '@/components/match/ApplyDrawer';
+import { TimeAgo } from '@/components/shared/TimeAgo';
 
 export default function Home() {
+  const hydrated = useHydrated();
   const programs = useStore((s) => s.programs);
   const profile = useStore((s) => s.profile);
-  const [applyProgram, setApplyProgram] = useState<Program | null>(null);
-  const triggerRef = useRef<HTMLElement | null>(null);
+  const [greeting, setGreeting] = useState('day');
+
+  useEffect(() => {
+    const hour = new Date().getHours();
+    setGreeting(hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening');
+  }, []);
 
   const sorted = useMemo(
-    () => [...programs].sort((a, b) => b.confidence - a.confidence).slice(0, 3),
+    () =>
+      [...programs]
+        .filter((program) => program.verification !== 'unconfirmed')
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 3),
     [programs],
   );
   const soon = useMemo(
     () =>
       programs
-        .filter((program) => program.deadline && daysUntil(program.deadline) !== null)
+        .filter(
+          (program) =>
+            program.verification !== 'unconfirmed' &&
+            program.deadline &&
+            daysUntil(program.deadline) !== null,
+        )
         .sort((a, b) => (daysUntil(a.deadline) ?? 0) - (daysUntil(b.deadline) ?? 0))
         .slice(0, 4),
     [programs],
@@ -34,17 +48,14 @@ export default function Home() {
     [programs],
   );
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
-
-  function openApply(program: Program, trigger: HTMLElement) {
-    triggerRef.current = trigger;
-    setApplyProgram(program);
-  }
-
-  function closeApply() {
-    setApplyProgram(null);
-    requestAnimationFrame(() => triggerRef.current?.focus());
+  if (!hydrated) {
+    return (
+      <div className="space-y-6" aria-busy="true">
+        <div className="h-8 w-64 animate-pulse rounded-xl bg-bg" />
+        <div className="h-48 animate-pulse rounded-hero bg-bg" />
+        <section className="card-surface p-8 text-center text-sm text-muted">Loading your funding…</section>
+      </div>
+    );
   }
 
   return (
@@ -75,11 +86,23 @@ export default function Home() {
                 View all
               </Link>
             </div>
-            <div className="space-y-4">
-              {sorted.map((program) => (
-                <MatchCard key={program.id} program={program} onApply={openApply} />
-              ))}
-            </div>
+            {sorted.length ? (
+              <div className="space-y-4">
+                {sorted.map((program) => (
+                  <MatchCard key={program.id} program={program} />
+                ))}
+              </div>
+            ) : (
+              <section className="card-surface p-6 text-center">
+                <p className="text-sm text-muted">
+                  This hunt found no award with a confirmed deadline yet. Open Matches to review the
+                  programs that still need a deadline check.
+                </p>
+                <Link href="/matches" className="btn-primary mt-4">
+                  Review matches
+                </Link>
+              </section>
+            )}
           </section>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -90,7 +113,7 @@ export default function Home() {
                   <div key={program.id} className="mt-4 border-t border-border pt-3">
                     <p className="truncate text-sm font-semibold">{program.name}</p>
                     <p className="mt-1 text-xs text-muted">
-                      {program.amountLabel} · checked {relativeTime(program.checkedAt)}
+                      {program.amountLabel} · checked <TimeAgo value={program.checkedAt} />
                     </p>
                   </div>
                 ))
@@ -124,8 +147,6 @@ export default function Home() {
           </p>
         </>
       )}
-
-      <ApplyDrawer program={applyProgram} onClose={closeApply} />
     </div>
   );
 }

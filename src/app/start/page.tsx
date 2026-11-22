@@ -1,16 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Check, Coins } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Coins, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useStore } from '@/lib/store';
-import { startHunt } from '@/lib/huntClient';
+import { useHydrated } from '@/lib/useHydrated';
+import { previewResume, startHunt } from '@/lib/huntClient';
 import { Input } from '@/components/shared/Input';
 import { Select } from '@/components/shared/Select';
 import { Combobox } from '@/components/wizard/Combobox';
 import { ResumeUpload } from '@/components/wizard/ResumeUpload';
-import type { Profile, ResumeMeta } from '@/lib/types';
+import type { Profile, ResumeMeta, ResumePreview } from '@/lib/types';
 
 const provinces = ['Alberta','British Columbia','Manitoba','New Brunswick','Newfoundland and Labrador','Northwest Territories','Nova Scotia','Nunavut','Ontario','Prince Edward Island','Quebec','Saskatchewan','Yukon'];
 const schools = ['Western University','University of Toronto','McMaster University',"Queen's University",'University of Waterloo','University of Ottawa','York University','Toronto Metropolitan University','Carleton University','University of Guelph','Wilfrid Laurier University','Brock University','Trent University','Ontario Tech University','University of Windsor','Lakehead University','Laurentian University','McGill University','Concordia University','Université de Montréal','University of British Columbia','Simon Fraser University','University of Victoria','University of Alberta','University of Calgary','University of Saskatchewan','University of Manitoba','Dalhousie University','University of New Brunswick','Memorial University of Newfoundland','Fanshawe College','Humber College','Seneca Polytechnic','George Brown College','Conestoga College'];
@@ -26,15 +28,68 @@ const labels = ["What's your full name?", 'Where do you live?', 'Where do you st
 
 const emptyProfile: Profile = { ...demo, fullName: '', school: '', field: '', year: '', incomeRange: '', status: '', resume: null };
 
+type PreviewState = 'idle' | 'reading' | 'ready' | 'failed';
+
 export default function Start() {
   const router = useRouter();
+  const hydrated = useHydrated();
   const save = useStore((s) => s.setProfile);
-  const [profile, setProfile] = useState<Profile>(useStore.getState().profile ?? emptyProfile);
+  const [profile, setProfile] = useState<Profile>(emptyProfile);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<ResumePreview | null>(null);
+  const [previewState, setPreviewState] = useState<PreviewState>('idle');
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [continueWithout, setContinueWithout] = useState(false);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (!hydrated || loaded.current) return;
+    loaded.current = true;
+    const stored = useStore.getState().profile;
+    if (stored) setProfile(stored);
+  }, [hydrated]);
+
+  const resumeDataUrl = profile.resume?.dataUrl ?? null;
+  const resumeName = profile.resume?.name ?? 'resume.pdf';
+
+  useEffect(() => {
+    if (!resumeDataUrl) {
+      setPreview(null);
+      setPreviewState('idle');
+      setPreviewError(null);
+      return;
+    }
+    let cancelled = false;
+    setPreview(null);
+    setPreviewState('reading');
+    setPreviewError(null);
+    previewResume(resumeDataUrl, resumeName)
+      .then((result) => {
+        if (cancelled) return;
+        setPreview(result);
+        setPreviewState('ready');
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return;
+        setPreview(null);
+        setPreviewState('failed');
+        setPreviewError(reason instanceof Error ? reason.message : "We couldn't read that resume.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeDataUrl, resumeName]);
 
   const values = [profile.fullName, profile.province, profile.school, profile.field, profile.year, profile.incomeRange, profile.status];
-  const valid = step === 0 ? profile.fullName.trim().length >= 2 : step === 7 ? Boolean(profile.resume) : Boolean(values[step]);
+  const valid =
+    step === 0
+      ? profile.fullName.trim().length >= 2
+      : step === 7
+        ? Boolean(profile.resume?.dataUrl) || continueWithout
+        : Boolean(values[step]);
+  const startReady =
+    !profile.resume || continueWithout || (Boolean(profile.resume.dataUrl) && previewState === 'ready');
 
   function patch<K extends keyof Profile>(key: K, value: Profile[K]) {
     const next = { ...profile, [key]: value };
@@ -42,7 +97,16 @@ export default function Start() {
     save(next);
   }
 
+  function setResume(resume: ResumeMeta | null) {
+    if (resume) setContinueWithout(false);
+    patch('resume', resume);
+  }
+
   function advance() {
+    if (step === 7 && !profile.resume && !continueWithout) {
+      toast.error('Upload a resume or choose to continue without one.');
+      return;
+    }
     if (step < totalSteps - 1) {
       setStep(step + 1);
       return;
@@ -51,10 +115,20 @@ export default function Start() {
   }
 
   async function begin() {
+    if (!startReady) {
+      toast.error('Re-upload your resume, wait for the preview, or continue without it.');
+      setStep(7);
+      return;
+    }
     setBusy(true);
     save(profile);
-    const id = await startHunt(profile);
-    router.push(`/hunt/${id}`);
+    try {
+      const id = await startHunt(profile);
+      router.push(`/hunt/${id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'The hunt could not start.');
+      setBusy(false);
+    }
   }
 
   return (
@@ -71,6 +145,7 @@ export default function Start() {
           onClick={() => {
             setProfile(demo);
             save(demo);
+            setContinueWithout(false);
             setStep(totalSteps);
           }}
           className="text-sm font-semibold text-brand hover:underline"
@@ -145,17 +220,63 @@ export default function Start() {
               {step === 7 && (
                 <>
                   <p className="mt-2 text-sm text-muted">
-                    Attach a PDF so agents can fill in applications for you when a program asks for one.
+                    Attach a PDF so agents can use your experience as evidence for every award they check.
                   </p>
                   <div className="mt-6">
-                    <ResumeUpload
-                      resume={profile.resume ?? null}
-                      onChange={(resume: ResumeMeta | null) => patch('resume', resume)}
-                    />
+                    <ResumeUpload resume={profile.resume ?? null} onChange={setResume} />
                   </div>
+
+                  {profile.resume && !profile.resume.dataUrl ? (
+                    <p className="mt-3 text-[13px] font-semibold text-warn">
+                      Re-upload your resume so we can read it.
+                    </p>
+                  ) : null}
+
+                  {previewState === 'reading' ? (
+                    <p className="mt-3 flex items-center gap-2 text-[13px] font-semibold text-muted">
+                      <Loader2 size={14} className="animate-spin" /> Reading your resume…
+                    </p>
+                  ) : null}
+
+                  {previewState === 'ready' && preview ? (
+                    <p className="mt-3 text-[13px] font-semibold text-money">
+                      Resume read: {preview.characters.toLocaleString()} characters · Top angles:{' '}
+                      {preview.angles.slice(0, 5).join(' · ') || 'none found yet'}
+                    </p>
+                  ) : null}
+
+                  {previewState === 'failed' ? (
+                    <p className="mt-3 text-[13px] font-semibold text-danger">
+                      {previewError || "We couldn't read your resume. Upload a PDF with selectable text."}
+                    </p>
+                  ) : null}
+
+                  <label className="mt-4 flex items-start gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={continueWithout}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setContinueWithout(checked);
+                        if (checked) {
+                          setPreview(null);
+                          setPreviewState('idle');
+                          setPreviewError(null);
+                          patch('resume', null);
+                        }
+                      }}
+                      className="mt-0.5 size-4 accent-[var(--color-brand)]"
+                    />
+                    <span>Continue without my resume</span>
+                  </label>
+
                   <button
                     type="button"
-                    onClick={() => setStep(totalSteps)}
+                    onClick={() => {
+                      setContinueWithout(true);
+                      patch('resume', null);
+                      setStep(totalSteps);
+                    }}
                     className="mt-3 text-sm font-semibold text-muted hover:text-ink"
                   >
                     Skip for now
@@ -237,16 +358,47 @@ export default function Start() {
                   );
                 })}
               </div>
+
+              {profile.resume && !profile.resume.dataUrl ? (
+                <div className="mt-4 rounded-xl border border-warn/40 bg-warn-tint p-3">
+                  <p className="text-[13px] font-semibold text-warn">Re-upload your resume</p>
+                  <p className="mt-1 text-xs leading-5 text-ink">
+                    The PDF itself is not kept between visits. Attach it again so this hunt can use it.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setStep(7)}
+                    className="mt-2 text-xs font-bold text-brand hover:underline"
+                  >
+                    Upload resume
+                  </button>
+                </div>
+              ) : null}
+
+              {profile.resume && profile.resume.dataUrl && previewState === 'reading' ? (
+                <p className="mt-4 flex items-center gap-2 text-[13px] font-semibold text-muted">
+                  <Loader2 size={14} className="animate-spin" /> Reading your resume…
+                </p>
+              ) : null}
+
+              {profile.resume && profile.resume.dataUrl && previewState === 'failed' ? (
+                <p className="mt-4 text-[13px] font-semibold text-danger">
+                  {previewError || 'We could not read your resume yet.'}
+                </p>
+              ) : null}
+
               <button
                 type="button"
                 onClick={begin}
-                disabled={busy}
-                className="btn-primary mt-6 h-14 w-full text-base"
+                disabled={busy || !startReady}
+                className="btn-primary mt-6 h-14 w-full text-base disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Getting your hunt ready…' : 'Start the hunt'} <ArrowRight size={18} />
               </button>
               <p className="mt-3 text-center text-xs text-muted">
-                Your answers help us find relevant programs. Nothing is applied for without you.
+                {startReady
+                  ? 'Your answers help us find relevant programs. Nothing is applied for without you.'
+                  : 'Start unlocks as soon as the resume preview finishes.'}
               </p>
             </>
           )}

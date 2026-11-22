@@ -1,0 +1,27 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# E501: long prompt strings are intentional.
+# B008: FastAPI call defaults are a framework convention.
+# UP040/UP047: PEP 695 aliases/generics are avoided for pydantic 2.5 compatibility.
+# B905: pre-existing test helper zips two equally sized lists.
+ignore = ["E501", "B008", "UP040", "UP047", "B905"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = false
+
+# The installed google-genai stubs do not expose ThinkingLevel/ThinkingConfig
+# uniformly across versions; the runtime objects are correct.
+[[tool.mypy.overrides]]
+module = ["google.genai", "google.genai.*"]
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+addopts = "-p no:pytest_ethereum"
